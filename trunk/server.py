@@ -8,7 +8,7 @@ class ConcertoServer( object ):
             self.abort = False
             self.server = server
 
-        def abort( self ):
+        def doAbort( self ):
             self.abort = True
 
         def run( self ):
@@ -27,11 +27,26 @@ class ConcertoServer( object ):
                         self.server.mn.commit( command.tid )
                     if command.command == "ABRT":
                         self.server.mn.abort( command.tid )            
+
+    class ClientCommand( object ):
+        def __init__( self, data = None, addr = None ):
+            if data:
+                self.construct( data, addr )
+
+        def construct( self, data, addr ):
+            self.addr = addr
+            t = pickle.loads( data )
+            # to do - check well-formedness here
+            self.command = t[0]
+            self.tid = t[1]
+            if self.command == "EXEC":
+                self.compares = t[2]
+                self.reads = t[3]
+                self.writes = t[4]
+                self.lid = t[5]
     
 
     def __init__( self, addr, numthreads = 3 ):
-        # A current limitation here is that you can't have more than one memory node on the same port
-        # but is that really important? I don't think so.
         self.socket = None
         self.mn = memnode.MemoryNode( )
         self.address = addr
@@ -47,42 +62,33 @@ class ConcertoServer( object ):
             t.start( )
         self.mainloop( )
 
-    class ClientCommand( object ):
-        def __init__( self, data = None ):
-            if data:
-                self.construct( data )
-
-        def construct( self, data ):
-            t = pickle.loads( data )
-            # to do - check well-formedness here
-            self.command = t[0]
-            self.tid = t[1]
-            if self.command == "EXEC":
-                self.compares = t[2]
-                self.reads = t[3]
-                self.writes = t[4]
-                self.lid = t[5]
-
     def mainloop( self ):
-        while True:
+        abort = False
+        while not abort:
             # TO DO: deal with fragmentation
             data, addr = self.socket.recvfrom( 2048 )
-            command = ConcertoServer.ClientCommand( data )
-            command.addr = addr
-#            print addr
-            self.command_queue.put( command )
-            # t: command / tid / cmp / rds / wrts / lid
-#             print "--------------------Server at %s" % (self.address,)
-#             self.mn.report( )
-#             print "------------------------------------"
+            command = ConcertoServer.ClientCommand( data, addr )            
+            print addr[0]
+            if addr[0] == "localhost" or addr[0] == "127.0.0.1":
+                if command.command == "REPORT":
+                    print "--------------------Server at %s" % (self.address,)
+                    self.mn.report( )
+                    print "------------------------------------"
+                if command.command == "TERMINATE":
+                    abort = True
+                else:
+                    self.command_queue.put( command )
+            else:
+                    self.command_queue.put( command )
+        self.stop( )
 
     def stop( self ):
         print "Concerto is exiting..."
         print "Waiting for threads to finish..."
         for t in self.threads:
-            t.abort( )
+            t.doAbort( )
         for t in self.threads:
-            if t.isAlive:
+            if t.isAlive( ):
                 t.join( )
                 print "Thread finished"
         print "All done, exiting."

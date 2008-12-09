@@ -67,13 +67,16 @@ if __name__ == "__main__":
                 print "Transaction %s :: successful == %s (retry count :: %s)" % (tid,success,m.retry_count( ))
             print "Thread %s finished!" % self.thid
 
-    num_threads = 5
+#     num_threads = 5
 
-    threads = [ test_thread( ) for x in xrange(num_threads) ]
-    for t in threads:
-        t.start( )
+#     threads = [ test_thread( ) for x in xrange(num_threads) ]
+#     for t in threads:
+#         t.start( )
 
-    for t in threads:
-        if t.isAlive( ):
-            t.join( )
+#     for t in threads:
+#         if t.isAlive( ):
+#             t.join( )
         
+    sock = socket.socket( socket.AF_INET, socket.SOCK_DGRAM )
+    txt = pickle.dumps( ("TERMINATE", -1) )
+    sock.sendto( txt, ("localhost", 21568) )
