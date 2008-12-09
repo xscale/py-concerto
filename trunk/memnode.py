@@ -1,0 +1,196 @@
+import threading, mutex, time
+
+VOTE_OK = 0
+BAD_LOCK = 1
+BAD_CMP = 2
+
+class MemoryNode( object ):
+    def __init__( self, size = 1000 ):
+        self.locations = [ 0 ] * size
+        # locks[x] = (loc-lock, read-lock, write-lock)
+        # protocol for taking the read lock:
+        # take the location lock, test the write lock, take the read lock, release the location lock
+        # for taking the write lock:
+        # take the location lock, test-and-take the read lock, test-and-take the write lock, release the location lock
+
+        self.locks = [ (threading.Lock( ), 0, 0) for x in xrange(size)] 
+        self.redo_log = []
+        self.transactions = {}
+
+    def take_read_locks( self, compares, id ):
+        successful = []
+        for c in compares:
+            loc,read,write = self.locks[c]
+            loc.acquire( )
+            if write == 0:
+                successful.append( c )
+                self.locks[c] = (loc,read+1, write)
+                loc.release( )
+            else:
+                for s in successful:
+                    loc2,read,write = self.locks[s]
+                    loc2.acquire( )
+                    self.locks[s] = (loc2, read-1, write)
+                    loc2.release( )
+                loc.release( )
+                return False
+        return True
+
+    def take_write_locks( self, writes, id ):
+        successful = []
+        good = True
+        for c in writes:
+            loc, read, write = self.locks[c]
+            loc.acquire( )            
+            if not read == 0:
+                good = False
+                loc.release( )
+                break
+            if not write == 0:
+                good = False
+            loc.release( )
+            if good:
+                successful.append( c )
+                self.locks[c] = (loc, read, write+1)
+        if not good:
+            for s in successful:
+                loc, read, write = self.locks[s]
+                loc.acquire( )
+                self.locks[s] = (loc, read, write-1)
+                loc.release( )
+            return False
+#         else:
+#             pass
+# #            print "Successful write lock"
+        return True
+
+    def release_locks( self, mt ):
+        locs = set( mt.compares ).union( mt.reads ) #.union( mt.writes )
+        for l in locs:
+            loc, read, write = self.locks[l]
+            loc.acquire( )
+            self.locks[l] = (loc, read-1, write)
+            loc.release( )
+        for l in mt.writes:
+            loc, read, write = self.locks[l]
+            loc.acquire( )
+            self.locks[l] = (loc, read, write-1)
+            loc.release( )
+
+    def check_compare( self, compares ):
+        for c in compares:
+            if self.locations[c] != compares[c]:
+                return False
+        return True
+
+    def apply_writems( self, writes ):
+        for w in writes:
+            self.locations[w] = writes[w]
+
+    def read_data( self, reads ):
+        ret = {}
+        for r in reads:
+            ret[r] = self.locations[r]
+        return ret
+
+    def exec_and_prepare( self, mt ):
+        self.transactions[ mt.id ] = mt
+        vote = VOTE_OK
+        # we want to avoid taking locks for a location more than once. Otherwise there are difficulties if we try and read, write or compare the same location
+        # The easiest way to do this is to only take the 'strongest' locks
+        compares, reads, writes = set( mt.compares ), set( mt.reads ), set( mt.writes )
+        compares = (compares - reads) - writes
+        reads = reads - writes
+        # short-circuit execution will ensure the right thing is done here
+        if not (self.take_read_locks( compares, mt.id ) 
+                and self.take_read_locks( reads, mt.id ) 
+                and self.take_write_locks( writes, mt.id )):
+            vote = BAD_LOCK
+        data = None
+        if not self.check_compare( mt.compares ):
+            self.release_locks( mt )
+            vote = BAD_CMP
+        else:
+            data = self.read_data( mt.reads )
+            self.redo_log.append( (mt.id,[],mt.writes) )
+        if vote != 0:
+            mt.state = STATE_ABORTED
+        else:
+            mt.state = STATE_COMMITTED
+        return (mt.id, vote, data)
+
+    def commit( self, id ):
+        mt = self.transactions[ id ]
+        self.apply_writems( mt.writes )
+        self.release_locks( mt )
+        mt.state = STATE_COMMITTED
+
+    def abort( self, tid ):
+        mt = self.transactions[ tid ]
+        if mt.state != STATE_ABORTED:
+            self.release_locks( mt )
+        mt.state = STATE_ABORTED
+
+    def report( self, printlocs = False ):
+        print "%s transactions received" % len(self.transactions)
+        print "%s transactions committed" % len( [t for t in self.transactions.values( ) if t.state == STATE_COMMITTED] )
+        print "%s transactions aborted" % len( [t for t in self.transactions.values( ) if t.state == STATE_ABORTED] )
+        print "%s transactions pending" % len( [t for t in self.transactions.values( ) if t.state == STATE_EXEC_PREPARE] )
+        if printlocs: print self.locations
+
+#####
+# MultiMiniTransactions have a unique - across all memory nodes - id. There can only be one
+# LocalMiniTransaction per node per MMT (although this is not enforced by the code yet).
+# LMTs exist on the client and server side. They are given a unique - per MMT - id, but also
+# keep track of the MMT id so we can find out to which MMT they belong. 
+            
+STATE_NONE = 0
+STATE_EXEC_PREPARE = 1
+STATE_ABORTED = 2
+STATE_COMMITTED = 3
+
+# A LMT only applies to one node
+class LocalMiniTransaction( object ):    
+    def __init__( self, compares, reads, writes, id, address=None):
+        self.compares = compares
+        self.reads = reads
+        self.writes = writes
+        self.id = id
+        self.state = STATE_NONE
+        self.address = address
+        self.lid = 0
+        self.retry_count = 0
+
+# This is a client-side class
+class MultiMiniTransaction( object ):
+    def __init__( self, tid ):
+        self.lmts = { }
+        self.id = tid
+        self.lmtids = 0
+
+    def add_transaction( self, lmt ):
+        lmt.lid = self.lmtids
+        self.lmtids += 1
+        self.lmts[lmt.lid] = lmt
+
+    def retry_count( self ):
+        return sum( l.retry_count for l in self.lmts.values( ) )
+
+if __name__ == "__main__":
+
+    class ServerThread( threading.Thread ):
+        def __init__( self, addr ):
+            self.server = ConcertoServer( addr )
+            threading.Thread.__init__( self )
+
+        def run( self ):
+            self.server.start( )
+
+    numservers = 2
+    baseaddr = 21567
+    threads = [ServerThread( ("localhost", 21567+x) ) for x in xrange(numservers) ]
+    for t in threads:
+        t.start( )
+    for t in [t for t in threads if t.isAlive( )]:
+        t.join( )
+
