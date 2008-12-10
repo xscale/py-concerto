@@ -1,6 +1,7 @@
-import memnode, socket, pickle, Queue, threading
+import memnode, socket, pickle, Queue, threading, time
 
 class ConcertoServer( object ):
+#---------------------------------------------------------------------------
     class server_thread( threading.Thread ):
         def __init__( self, queue, server ):
             threading.Thread.__init__( self )
@@ -20,14 +21,25 @@ class ConcertoServer( object ):
                     pass
                 if command:
                     self.server.process_command( command )
-#                     if command.command == "EXEC": 
-#                         mt = memnode.LocalMiniTransaction( command.compares, command.reads, command.writes, command.tid )
-#                         success = self.server.mn.exec_and_prepare( mt )
-#                         self.server.socket.sendto( pickle.dumps( (command.lid,success) ), command.addr )
-#                     if command.command == "COMT":
-#                         self.server.mn.commit( command.tid )
-#                     if command.command == "ABRT":
-#                         self.server.mn.abort( command.tid )            
+#---------------------------------------------------------------------------
+    class heartbeat_thread(threading.Thread):    
+        def __init__(self, server, interval=2.0):
+            threading.Thread.__init__( self )
+            self.server = server
+            self.abort = False
+            self.interval = interval
+
+        def doAbort( self ):
+            self.abort = True
+
+        def run(self ):
+            while not self.abort:
+                time.sleep( self.interval )
+                txt = pickle.dumps( "HB-SEND" )
+                for addr in self.server.heartbeats:
+                    print "Sending heartbeat to %s" % (addr,)
+                    self.server.socket.sendto( txt, addr )
+#---------------------------------------------------------------------------    
 
     class ClientCommand( object ):
         def __init__( self, data = None, addr = None ):
@@ -45,7 +57,10 @@ class ConcertoServer( object ):
                 self.reads = t[3]
                 self.writes = t[4]
                 self.lid = t[5]
-    
+            if self.command == "HEARTBEAT":
+                self.hbaddr = t[2]
+
+#---------------------------------------------------------------------------
 
     def __init__( self, addr, numthreads = 3 ):
         self.socket = None
@@ -53,8 +68,12 @@ class ConcertoServer( object ):
         self.address = addr
         self.command_queue = Queue.Queue( )
         self.numthreads = numthreads
-        self.threads = [ ConcertoServer.server_thread( self.command_queue, self ) for i in xrange(self.numthreads) ]
+        self.threads = [ ConcertoServer.server_thread( self.command_queue, 
+                                                       self ) 
+                         for i in xrange(self.numthreads) ]
         self.abort = False
+        self.heartbeats = set( )
+        self.hb_thread = ConcertoServer.heartbeat_thread( self )
 
     def do_abort( self ):
         self.abort = True
@@ -65,15 +84,18 @@ class ConcertoServer( object ):
         self.socket.bind( self.address )
         for t in self.threads:
             t.start( )
+        self.hb_thread.start( )
         self.mainloop( )
 
+    def add_heartbeat(self, addr):
+        self.heartbeats.add( addr )
+            
     def process_command(self, command):
         if command.command == "REPORT":
             txt = "--------------------Server at %s\n" % (self.address,) + self.mn.report( ) + "\n------------------------------------"
             bytes = pickle.dumps( txt )
             self.socket.sendto( bytes, command.addr )
         if command.command == "TERMINATE":
-            print "GOT TERMINATE"
             if command.addr[0] == "localhost" or command.addr[0] == "127.0.0.1":
                 self.do_abort( )
         if command.command == "EXEC":
@@ -85,6 +107,8 @@ class ConcertoServer( object ):
             self.mn.commit( command.tid )
         if command.command == "ABRT":
             self.mn.abort( command.tid )            
+        if command.command == "HEARTBEAT":
+            self.add_heartbeat( command.hbaddr )
     
 
     def mainloop( self ):
@@ -108,7 +132,7 @@ class ConcertoServer( object ):
         for t in self.threads:
             t.doAbort( )
         for t in self.threads:
-            if t.isAlive( ):
+            if t.isAlive( ) and False: # hack to make ctrl-c work for now
                 t.join( )
                 print "Thread finished"
         print "All done, exiting."
