@@ -78,5 +78,10 @@ if __name__ == "__main__":
 #             t.join( )
         
     sock = socket.socket( socket.AF_INET, socket.SOCK_DGRAM )
-    txt = pickle.dumps( ("TERMINATE", -1) )
-    sock.sendto( txt, ("localhost", 21568) )
+    txt = pickle.dumps( ("REPORT", -1) )
+#        txt = pickle.dumps( ("TERMINATE", -1) )
+#    sock.sendto( txt, ("localhost", 21568) )
+    sock.sendto( txt, ("localhost", 21567) )
+
+    data = sock.recvfrom( 4096 )
+    print pickle.loads( data[0] )
