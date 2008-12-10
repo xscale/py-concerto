@@ -19,14 +19,15 @@ class ConcertoServer( object ):
                 except:
                     pass
                 if command:
-                    if command.command == "EXEC": 
-                        mt = memnode.LocalMiniTransaction( command.compares, command.reads, command.writes, command.tid )
-                        success = self.server.mn.exec_and_prepare( mt )
-                        self.server.socket.sendto( pickle.dumps( (command.lid,success) ), command.addr )
-                    if command.command == "COMT":
-                        self.server.mn.commit( command.tid )
-                    if command.command == "ABRT":
-                        self.server.mn.abort( command.tid )            
+                    self.server.process_command( command )
+#                     if command.command == "EXEC": 
+#                         mt = memnode.LocalMiniTransaction( command.compares, command.reads, command.writes, command.tid )
+#                         success = self.server.mn.exec_and_prepare( mt )
+#                         self.server.socket.sendto( pickle.dumps( (command.lid,success) ), command.addr )
+#                     if command.command == "COMT":
+#                         self.server.mn.commit( command.tid )
+#                     if command.command == "ABRT":
+#                         self.server.mn.abort( command.tid )            
 
     class ClientCommand( object ):
         def __init__( self, data = None, addr = None ):
@@ -53,6 +54,10 @@ class ConcertoServer( object ):
         self.command_queue = Queue.Queue( )
         self.numthreads = numthreads
         self.threads = [ ConcertoServer.server_thread( self.command_queue, self ) for i in xrange(self.numthreads) ]
+        self.abort = False
+
+    def do_abort( self ):
+        self.abort = True
 
     def start( self ):
         print "Concerto server starting at %s" % (self.address,)
@@ -62,24 +67,39 @@ class ConcertoServer( object ):
             t.start( )
         self.mainloop( )
 
+    def process_command(self, command):
+        if command.command == "REPORT":
+            txt = "--------------------Server at %s\n" % (self.address,) + self.mn.report( ) + "\n------------------------------------"
+            bytes = pickle.dumps( txt )
+            self.socket.sendto( bytes, command.addr )
+        if command.command == "TERMINATE":
+            print "GOT TERMINATE"
+            if command.addr[0] == "localhost" or command.addr[0] == "127.0.0.1":
+                self.do_abort( )
+        if command.command == "EXEC":
+            mt = memnode.LocalMiniTransaction( command.compares, command.reads, command.writes, command.tid )
+            success = self.mn.exec_and_prepare( mt )
+            bytes = pickle.dumps( (command.lid, success) )
+            self.socket.sendto( bytes, command.addr )
+        if command.command == "COMT":
+            self.mn.commit( command.tid )
+        if command.command == "ABRT":
+            self.mn.abort( command.tid )            
+    
+
     def mainloop( self ):
-        abort = False
-        while not abort:
+        while not self.abort:
             # TO DO: deal with fragmentation
             data, addr = self.socket.recvfrom( 2048 )
             command = ConcertoServer.ClientCommand( data, addr )            
             print addr[0]
-            if addr[0] == "localhost" or addr[0] == "127.0.0.1":
-                if command.command == "REPORT":
-                    print "--------------------Server at %s" % (self.address,)
-                    self.mn.report( )
-                    print "------------------------------------"
-                if command.command == "TERMINATE":
-                    abort = True
-                else:
-                    self.command_queue.put( command )
+            print command.command
+            if command.command == "TERMINATE":
+                # ensure the abort flag gets set before we get a chance to block on
+                # the next packet
+                self.process_command( command )
             else:
-                    self.command_queue.put( command )
+                self.command_queue.put( command )
         self.stop( )
 
     def stop( self ):

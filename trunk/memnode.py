@@ -132,11 +132,10 @@ class MemoryNode( object ):
         mt.state = STATE_ABORTED
 
     def report( self, printlocs = False ):
-        print "%s transactions received" % len(self.transactions)
-        print "%s transactions committed" % len( [t for t in self.transactions.values( ) if t.state == STATE_COMMITTED] )
-        print "%s transactions aborted" % len( [t for t in self.transactions.values( ) if t.state == STATE_ABORTED] )
-        print "%s transactions pending" % len( [t for t in self.transactions.values( ) if t.state == STATE_EXEC_PREPARE] )
-        if printlocs: print self.locations
+        txt = "%s transactions received" % (len(self.transactions),) + "\n%s transactions committed" % (len( [t for t in self.transactions.values( ) if t.state == STATE_COMMITTED] ), ) + "\n%s transactions aborted" % (len( [t for t in self.transactions.values( ) if t.state == STATE_ABORTED] ), ) + "\n%s transactions pending" % (len( [t for t in self.transactions.values( ) if t.state == STATE_EXEC_PREPARE] ), )
+        if printlocs: txt += self.locations
+        return txt
+
 
 #####
 # MultiMiniTransactions have a unique - across all memory nodes - id. There can only be one
