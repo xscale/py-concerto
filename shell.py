@@ -1,4 +1,35 @@
+#################################################################
+# shell.py
+# Copyright (c) 2008 Henry Robinson
+# This software is provided with ABSOLUTELY NO WARRANTY, nor
+# implication of fitness for purpose
+# This software is licensed under the GPL v2.
+
+# run this with python shell.py to get a very simply command line interface
+# which you can use you talk to individual memory nodes.
+
+# Commands are:
+# connect host port
+# -- starts a connection to the memory node at (host,port), will fail if heartbeat
+# -- messages aren't received
+
+# report
+# -- prints some statistics on the number of transactions received and committed
+# -- and the contents of memory
+
+# kill
+# -- asks the memory node to terminate. Normally does so cleanly.
+
+# heartbeat
+# -- prints the number of heartbeats received
+
+# trans
+# -- execute a transaction. You'll be prompted for a list of locations to read,
+# -- and a set of pairs to compare and also to write
+
 import socket, pickle, monitor, time, memnode, client
+
+
 
 class ConcertoShell(object):
     """This interactive shell allows you to connect to one Concerto server and send it commands.
@@ -55,6 +86,32 @@ class ConcertoShell(object):
             return False
         print "Connected to %s" % (self.server,)
         return True
+
+    def transaction(self, ):
+        reads = raw_input( "Locations to read separated by commas, press enter for none:\n " )
+        reads = [ int( x.strip( ) ) for x in reads.split( "," ) if x != '' ]
+        compares = raw_input( "Locations to compare as location:value separated by commas, press enter for none:\n " )
+        compares = [ ( int( x.strip( ).split(":")[0] ),
+                       int( x.strip( ).split(":")[1] ) ) for x in compares.split( "," ) if x != '' ]
+        
+        writes = raw_input( "Type in the locations to write as location:value separated by commas, press enter for none:\n " )
+        writes = [ ( int( x.strip( ).split(":")[0] ),
+                     int( x.strip( ).split(":")[1] ) ) for x in writes.split( "," ) if x != '' ]
+        read_dict, write_dict, compare_dict = { }, { }, { }
+        for r in reads: read_dict[r] = 1
+        for (l,d) in writes: write_dict[l] = d
+        for (l,d) in compares: compare_dict[l] = d
+        
+        m = memnode.MultiMiniTransaction( 10 )
+        m.gen_tid( 10 )
+        transid = m.id
+        l = memnode.LocalMiniTransaction( compare_dict, read_dict, write_dict, transid, self.server )
+        m.add_transaction( l )
+        print "Starting transaction %s" % transid
+        success = self.client.do_transaction( m )
+        print "Transaction %s :: successful == %s (retry count :: %s)" % (transid,success,m.retry_count( ))
+        return success
+    
         
 
     def start(self, ):
@@ -87,30 +144,7 @@ class ConcertoShell(object):
                 if cmd[0] == "QUIT":
                     self.do_abort( )
                 if cmd[0] == "TRANS":
-                    reads = raw_input( "Locations to read separated by commas, press enter for none:\n " )
-                    reads = [ int( x.strip( ) ) for x in reads.split( "," ) if x != '' ]
-#                    reads = map( lambda x: int( x.strip( ) ), reads.split( "," ) )
-                    compares = raw_input( "Locations to compare as location:value separated by commas, press enter for none:\n " )
-                    compares = [ ( int( x.strip( ).split(":")[0] ),
-                                   int( x.strip( ).split(":")[1] ) ) for x in compares.split( "," ) if x != '' ]
-                                        
-                    writes = raw_input( "Type in the locations to write as location:value separated by commas, press enter for none:\n " )
-                    writes = [ ( int( x.strip( ).split(":")[0] ),
-                                 int( x.strip( ).split(":")[1] ) ) for x in writes.split( "," ) if x != '' ]
-                    read_dict, write_dict, compare_dict = { }, { }, { }
-                    for r in reads: read_dict[r] = 1
-                    for (l,d) in writes: write_dict[l] = d
-                    for (l,d) in compares: compare_dict[l] = d
-                    print compare_dict
-                    m = memnode.MultiMiniTransaction( 10 )
-                    m.gen_tid( 10 )
-                    transid = m.id
-                    l = memnode.LocalMiniTransaction( compare_dict, read_dict, write_dict, transid, self.server )
-                    m.add_transaction( l )
-                    print "Starting transaction %s" % transid
-                    success = self.client.do_transaction( m )
-                    print "Transaction %s :: successful == %s (retry count :: %s)" % (transid,success,m.retry_count( ))
-                    
+                    self.transaction( )                    
                 if cmd[0] == "HEARTBEAT":
                     if self.is_connected( ):
                         print "%s heartbeats received from %s" % (self.hbs, self.server)

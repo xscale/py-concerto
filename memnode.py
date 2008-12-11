@@ -1,3 +1,15 @@
+#################################################################
+# memnode.py
+# Copyright (c) 2008 Henry Robinson
+# This software is provided with ABSOLUTELY NO WARRANTY, nor
+# implication of fitness for purpose
+# This software is licensed under the GPL v2.
+
+# Implementation of a memory node.
+# Currently, 'memory' is implemented as an array of integers. There is a single lock per location.
+# If we were being more sensible about this, we could use a tree structure to do range locks.
+# And a bunch of other things.
+
 import threading, mutex, time
 
 VOTE_OK = 0
@@ -20,16 +32,20 @@ class MemoryNode( object ):
     def take_read_locks( self, compares, id ):
         successful = []
         for c in compares:
-            loc,read,write = self.locks[c]
+            loc,_,_ = self.locks[c]
             loc.acquire( )
+            _,read,write = self.locks[c]            
             if write == 0:
                 successful.append( c )
                 self.locks[c] = (loc,read+1, write)
                 loc.release( )
             else:
                 for s in successful:
-                    loc2,read,write = self.locks[s]
+                    loc2,_,_ = self.locks[s]
                     loc2.acquire( )
+                    # We have to re-read read and write, because they could have changed
+                    # while we were acquiring the lock
+                    _,read,write = self.locks[s]
                     self.locks[s] = (loc2, read-1, write)
                     loc2.release( )
                 loc.release( )
@@ -40,40 +56,41 @@ class MemoryNode( object ):
         successful = []
         good = True
         for c in writes:
-            loc, read, write = self.locks[c]
-            loc.acquire( )            
+            loc, _, _ = self.locks[c]
+            loc.acquire( )
+            _, read, write = self.locks[c]            
             if not read == 0:
                 good = False
                 loc.release( )
                 break
             if not write == 0:
                 good = False
-            loc.release( )
             if good:
                 successful.append( c )
                 self.locks[c] = (loc, read, write+1)
+            loc.release( )                
         if not good:
             for s in successful:
-                loc, read, write = self.locks[s]
+                loc, _, _ = self.locks[s]
                 loc.acquire( )
+                _, read, write = self.locks[s]                
                 self.locks[s] = (loc, read, write-1)
                 loc.release( )
             return False
-#         else:
-#             pass
-# #            print "Successful write lock"
         return True
 
     def release_locks( self, mt ):
         locs = set( mt.compares ).union( mt.reads ) #.union( mt.writes )
         for l in locs:
-            loc, read, write = self.locks[l]
+            loc, _, _ = self.locks[l]
             loc.acquire( )
+            _, read, write = self.locks[l]            
             self.locks[l] = (loc, read-1, write)
             loc.release( )
         for l in mt.writes:
-            loc, read, write = self.locks[l]
+            loc, _, _ = self.locks[l]
             loc.acquire( )
+            _, read, write = self.locks[l]            
             self.locks[l] = (loc, read, write-1)
             loc.release( )
 
@@ -162,7 +179,7 @@ class LocalMiniTransaction( object ):
 
 import time
 
-# This is a client-side class
+# This is a client-side class - bundle together a bunch of LMTs and then send them over the network.
 class MultiMiniTransaction( object ):
     def __init__( self, tid ):
         self.lmts = { }

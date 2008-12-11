@@ -1,3 +1,16 @@
+#################################################################
+# client.py
+# Copyright (c) 2008 Henry Robinson
+# This software is provided with ABSOLUTELY NO WARRANTY, nor
+# implication of fitness for purpose
+# This software is licensed under the GPL v2.
+
+# Client side object that runs the transaction protocol
+# Running this script connects to a (currently hard-coded) set
+# of memory nodes and runs many simultaneous transactions as a
+# stress test.
+
+
 import socket, pickle, memnode, random, threading, time, md5
 
 class ConcertoClient( object ):
