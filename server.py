@@ -34,11 +34,11 @@ class ConcertoServer( object ):
 
         def run(self ):
             while not self.abort:
-                time.sleep( self.interval )
                 txt = pickle.dumps( "HB-SEND" )
                 for addr in self.server.heartbeats:
-                    print "Sending heartbeat to %s" % (addr,)
+#                    print "Sending heartbeat to %s" % (addr,)
                     self.server.socket.sendto( txt, addr )
+                time.sleep( self.interval )
 #---------------------------------------------------------------------------    
 
     class ClientCommand( object ):
@@ -100,6 +100,9 @@ class ConcertoServer( object ):
                 self.do_abort( )
         if command.command == "EXEC":
             mt = memnode.LocalMiniTransaction( command.compares, command.reads, command.writes, command.tid )
+            print "Writes: ", command.writes
+            print "Compares: ", command.compares
+            print "Reads: ", command.reads
             success = self.mn.exec_and_prepare( mt )
             bytes = pickle.dumps( (command.lid, success) )
             self.socket.sendto( bytes, command.addr )
@@ -129,16 +132,17 @@ class ConcertoServer( object ):
     def stop( self ):
         print "Concerto is exiting..."
         print "Waiting for threads to finish..."
+        self.hb_thread.doAbort()
         for t in self.threads:
             t.doAbort( )
         for t in self.threads:
-            if t.isAlive( ) and False: # hack to make ctrl-c work for now
+            if t.isAlive( ): # hack to make ctrl-c work for now
                 t.join( )
                 print "Thread finished"
         print "All done, exiting."
 
+import sys
 if __name__ == "__main__":
-
     class ServerThread( threading.Thread ):
         def __init__( self, addr ):
             self.server = ConcertoServer( addr )
@@ -147,10 +151,18 @@ if __name__ == "__main__":
         def run( self ):
             self.server.start( )
 
-    numservers = 2
-    baseaddr = 21567
-    threads = [ServerThread( ("localhost", 21567+x) ) for x in xrange(numservers) ]
+    numservers = 1
+    baseport = 21567
+
+    if len( sys.argv ) >= 2:
+        numservers = int( sys.argv[1] )
+    if len( sys.argv ) >= 3:
+        baseport = int( sys.argv[2] )
+        
+    threads = [ServerThread( ("localhost", baseport+x) ) for x in xrange(numservers) ]
     for t in threads:
         t.start( )
-    for t in [t for t in threads if t.isAlive( )]:
-        t.join( )
+    for t in threads:
+        if t.isAlive( ):
+            t.join( )
+            print "joined %s" % t.getName( )
