@@ -1,3 +1,17 @@
+#################################################################
+# server.py
+# Copyright (c) 2008 Henry Robinson
+# This software is provided with ABSOLUTELY NO WARRANTY, nor
+# implication of fitness for purpose
+# This software is licensed under the GPL v2.
+
+# Server-side network interface. Receives transactions and proxies them
+# to the memory node. Also sends heartbeats to hosts that ask for them.
+
+# Running this script brings up a single server+memnode at localhost, 21567
+# you can also supply one or two arguments: the first is the number of servers
+# and the second is the base port to use (server i is at port 21567+i)
+
 import memnode, socket, pickle, Queue, threading, time
 
 class ConcertoServer( object ):
