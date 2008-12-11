@@ -131,9 +131,9 @@ class MemoryNode( object ):
             self.release_locks( mt )
         mt.state = STATE_ABORTED
 
-    def report( self, printlocs = False ):
+    def report( self, printlocs = True ):
         txt = "%s transactions received" % (len(self.transactions),) + "\n%s transactions committed" % (len( [t for t in self.transactions.values( ) if t.state == STATE_COMMITTED] ), ) + "\n%s transactions aborted" % (len( [t for t in self.transactions.values( ) if t.state == STATE_ABORTED] ), ) + "\n%s transactions pending" % (len( [t for t in self.transactions.values( ) if t.state == STATE_EXEC_PREPARE] ), )
-        if printlocs: txt += self.locations
+        if printlocs: txt += "\n" + str(self.locations )
         return txt
 
 
@@ -160,12 +160,19 @@ class LocalMiniTransaction( object ):
         self.lid = 0
         self.retry_count = 0
 
+import time
+
 # This is a client-side class
 class MultiMiniTransaction( object ):
     def __init__( self, tid ):
         self.lmts = { }
         self.id = tid
         self.lmtids = 0
+        self.time = time.time( )
+
+    def gen_tid( self, base ):
+        self.id = (int((self.time * 1000000.0) % 1000000) << 16) + (base << 8)
+
 
     def add_transaction( self, lmt ):
         lmt.lid = self.lmtids
