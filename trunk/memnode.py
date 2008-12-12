@@ -10,15 +10,15 @@
 # If we were being more sensible about this, we could use a tree structure to do range locks.
 # And a bunch of other things.
 
-import threading, mutex, time
+import threading, mutex, time, array
 
 VOTE_OK = 0
 BAD_LOCK = 1
 BAD_CMP = 2
 
 class MemoryNode( object ):
-    def __init__( self, size = 1000 ):
-        self.locations = [ 0 ] * size
+    def __init__( self, size = 1024 ):
+        self.locations = array.array( 'i', [ 0 for x in xrange(size) ] )
         # locks[x] = (loc-lock, read-lock, write-lock)
         # protocol for taking the read lock:
         # take the location lock, test the write lock, take the read lock, release the location lock
