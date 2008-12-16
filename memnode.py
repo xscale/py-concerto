@@ -27,9 +27,9 @@ class MemoryNode( object ):
 
         self.locks = [ (threading.Lock( ), 0, 0) for x in xrange(size)] 
         self.redo_log = []
-        self.transactions = {}
+        self.transactions = {}        
 
-    def take_read_locks( self, compares, id ):
+    def take_read_locks( self, compares, lmt ):
         successful = []
         for c in compares:
             loc,_,_ = self.locks[c]
@@ -49,10 +49,11 @@ class MemoryNode( object ):
                     self.locks[s] = (loc2, read-1, write)
                     loc2.release( )
                 loc.release( )
-                return False
+                return False            
+        lmt.tkn_rdlocks.extend( successful )
         return True
 
-    def take_write_locks( self, writes, id ):
+    def take_write_locks( self, writes, lmt ):
         successful = []
         good = True
         for c in writes:
@@ -77,9 +78,10 @@ class MemoryNode( object ):
                 self.locks[s] = (loc, read, write-1)
                 loc.release( )
             return False
+        lmt.tkn_wtlocks.extend( successful )
         return True
 
-    def release_locks( self, mt ):
+    def release_all_locks( self, mt ):
         locs = set( mt.compares ).union( mt.reads ) #.union( mt.writes )
         for l in locs:
             loc, _, _ = self.locks[l]
@@ -93,6 +95,23 @@ class MemoryNode( object ):
             _, read, write = self.locks[l]            
             self.locks[l] = (loc, read, write-1)
             loc.release( )
+
+    def release_locks( self, lmt ):
+        for l in lmt.tkn_rdlocks:
+            loc, _, _ = self.locks[l]
+            loc.acquire( )
+            _, read, write = self.locks[l]            
+            self.locks[l] = (loc, read-1, write)
+            loc.release( )
+        for l in lmt.tkn_wtlocks:
+            loc, _, _ = self.locks[l]
+            loc.acquire( )
+            _, read, write = self.locks[l]            
+            self.locks[l] = (loc, read, write-1)
+            loc.release( )
+        lmt.tkn_wtlocks = [] 
+        lmt.tkn_rdlocks = []
+
 
     def check_compare( self, compares ):
         for c in compares:
@@ -119,17 +138,19 @@ class MemoryNode( object ):
         compares = (compares - reads) - writes
         reads = reads - writes
         # short-circuit execution will ensure the right thing is done here
-        if not (self.take_read_locks( compares, mt.id ) 
-                and self.take_read_locks( reads, mt.id ) 
-                and self.take_write_locks( writes, mt.id )):
-            vote = BAD_LOCK
         data = None
-        if not self.check_compare( mt.compares ):
+        if not (self.take_read_locks( compares, mt ) 
+                and self.take_read_locks( reads, mt ) 
+                and self.take_write_locks( writes, mt )):
+            vote = BAD_LOCK
             self.release_locks( mt )
-            vote = BAD_CMP
         else:
-            data = self.read_data( mt.reads )
-            self.redo_log.append( (mt.id,[],mt.writes) )
+            if not self.check_compare( mt.compares ):
+                self.release_all_locks( mt )
+                vote = BAD_CMP
+            else:
+                data = self.read_data( mt.reads )
+                self.redo_log.append( (mt.id,[],mt.writes) )
         if vote != 0:
             mt.state = STATE_ABORTED
         else:
@@ -176,6 +197,8 @@ class LocalMiniTransaction( object ):
         self.address = address
         self.lid = 0
         self.retry_count = 0
+        self.tkn_rdlocks = [] # Use these for keeping track of which locks we've got
+        self.tkn_wtlocks = []
 
 import time
 

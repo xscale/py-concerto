@@ -56,7 +56,7 @@ class ConcertoClient( object ):
 if __name__ == "__main__":
     class test_thread( threading.Thread ):
         tid = 0
-        ntrials = 10
+        ntrials = 30
         host = "localhost"
         def __init__( self ):
             threading.Thread.__init__( self )
@@ -72,15 +72,15 @@ if __name__ == "__main__":
                 tid = self.transident + n
                 m = memnode.MultiMiniTransaction( tid )
                 l = memnode.LocalMiniTransaction( {},{0:0,10:0,20:0}, {random.randint(0,999):random.randint(0,512)}, tid ,(test_thread.host, 21567))
-                l2 = memnode.LocalMiniTransaction( {},{0:0,10:0,20:0}, {random.randint(0,999):random.randint(0,512)}, tid ,(test_thread.host, 21568))
+#                l2 = memnode.LocalMiniTransaction( {},{0:0,10:0,20:0}, {random.randint(0,999):random.randint(0,512)}, tid ,(test_thread.host, 21568))
                 m.add_transaction( l )
-                m.add_transaction( l2 )
+#                m.add_transaction( l2 )
                 print "Starting transaction %s" % tid
                 success = c.do_transaction( m )
                 print "Transaction %s :: successful == %s (retry count :: %s)" % (tid,success,m.retry_count( ))
             print "Thread %s finished!" % self.thid
 
-    num_threads = 5
+    num_threads = 10
 
     threads = [ test_thread( ) for x in xrange(num_threads) ]
     for t in threads:
